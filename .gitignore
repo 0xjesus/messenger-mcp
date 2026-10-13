@@ -1,0 +1,8 @@
+/bin/
+*.db
+*.db-*
+*.sqlite
+secrets.env
+*.log
+.env
+/data/
