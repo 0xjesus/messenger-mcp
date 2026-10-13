@@ -65,7 +65,13 @@ def synapse(sec):
         "url_preview_enabled": False,
         "max_upload_size": "100M",
         "app_service_config_files": [str(DATA / "bridge" / "registration.yaml")],
+        # Single-user server: linking creates one portal per chat at once.
         "rc_message": {"per_second": 100, "burst_count": 200},
+        "rc_joins": {"local": {"per_second": 50, "burst_count": 500}},
+        "rc_joins_per_room": {"per_second": 50, "burst_count": 500},
+        "rc_invites": {"per_room": {"per_second": 50, "burst_count": 500},
+                       "per_user": {"per_second": 50, "burst_count": 500},
+                       "per_issuer": {"per_second": 50, "burst_count": 500}},
     }
     write(syn / "homeserver.yaml", yaml.safe_dump(cfg, sort_keys=False))
     log = {

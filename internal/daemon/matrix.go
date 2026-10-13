@@ -126,6 +126,8 @@ type Matrix struct {
 	password string
 	r        *router
 	log      *slog.Logger
+	bot      id.UserID
+	joins    *joiner
 
 	mu       sync.Mutex
 	names    map[string]string
@@ -139,7 +141,34 @@ func NewMatrix(cfg Config, l *ledger.Ledger, log *slog.Logger) (*Matrix, error) 
 		return nil, err
 	}
 	cli.Store = &syncStore{l: l}
-	return &Matrix{cli: cli, l: l, password: cfg.Password, log: log, names: map[string]string{}}, nil
+	m := &Matrix{cli: cli, l: l, password: cfg.Password, log: log, bot: id.UserID(cfg.BridgeBot), names: map[string]string{}}
+	m.joins = newJoiner(func(ctx context.Context, roomID id.RoomID) error {
+		_, err := cli.JoinRoomByID(ctx, roomID)
+		return err
+	}, log)
+	return m, nil
+}
+
+// inviteFilter keeps the full /sync used for invite reconciliation small.
+const inviteFilter = `{"presence":{"not_types":["*"]},"account_data":{"not_types":["*"]},` +
+	`"room":{"timeline":{"limit":1},"ephemeral":{"not_types":["*"]},"account_data":{"not_types":["*"]},` +
+	`"state":{"lazy_load_members":true}}}`
+
+// reconcileInvites queues joins for bridge invites that are still pending,
+// e.g. because a join was rate limited before the last restart.
+func (m *Matrix) reconcileInvites(ctx context.Context) {
+	res, err := m.cli.FullSyncRequest(ctx, mautrix.ReqSync{FilterID: inviteFilter})
+	if err != nil {
+		m.log.Warn("invite reconciliation failed", "error", err)
+		return
+	}
+	rooms := pendingInvites(res, m.cli.UserID, m.bot)
+	if len(rooms) > 0 {
+		m.log.Info("joining pending invites", "rooms", len(rooms))
+	}
+	for _, roomID := range rooms {
+		m.joins.Enqueue(roomID)
+	}
 }
 
 func (m *Matrix) login(ctx context.Context) error {
@@ -248,11 +277,12 @@ func (m *Matrix) Run(ctx context.Context) {
 	syncer.OnSync(m.onSync)
 	syncer.OnEvent(m.r.handle)
 	m.cli.Syncer = syncer
+	go m.joins.Run(ctx)
 	for ctx.Err() == nil {
 		if err := m.login(ctx); err != nil {
 			m.setErr(err)
 			m.log.Warn("matrix not ready", "error", err)
-		} else if err := m.cli.SyncWithContext(ctx); err != nil && ctx.Err() == nil {
+		} else if err := m.syncOnce(ctx); err != nil && ctx.Err() == nil {
 			m.setErr(err)
 			m.log.Warn("matrix sync stopped", "error", err)
 			if errors.Is(err, mautrix.MUnknownToken) {
@@ -264,6 +294,12 @@ func (m *Matrix) Run(ctx context.Context) {
 		case <-time.After(5 * time.Second):
 		}
 	}
+}
+
+// syncOnce recovers missed invites, then syncs until the stream stops.
+func (m *Matrix) syncOnce(ctx context.Context) error {
+	m.reconcileInvites(ctx)
+	return m.cli.SyncWithContext(ctx)
 }
 
 func (m *Matrix) Status() map[string]any {
@@ -288,9 +324,7 @@ func (m *Matrix) Join(ctx context.Context, roomID id.RoomID, inviter id.UserID, 
 		m.log.Warn("ignoring invite", "room", roomID, "inviter", inviter)
 		return
 	}
-	if _, err := m.cli.JoinRoomByID(ctx, roomID); err != nil {
-		m.log.Error("join failed", "room", roomID, "error", err)
-	}
+	m.joins.Enqueue(roomID)
 }
 
 // Name returns a member's display name, cached per room.

@@ -137,7 +137,7 @@ func TestParseCookies(t *testing.T) {
 	cases := map[string]map[string]string{
 		`{"c_user":"100","xs":"abc"}`: {"c_user": "100", "xs": "abc"},
 		`curl 'https://www.messenger.com/' -H 'accept: */*' -H 'cookie: c_user=100; xs=abc%3A1; datr=z'`: {"c_user": "100", "xs": "abc%3A1", "datr": "z"},
-		`curl 'https://www.messenger.com/' -b 'c_user=100; xs=abc'`:                                   {"c_user": "100", "xs": "abc"},
+		`curl 'https://www.messenger.com/' -b 'c_user=100; xs=abc'`:                                      {"c_user": "100", "xs": "abc"},
 		`c_user=100; xs=abc`: {"c_user": "100", "xs": "abc"},
 	}
 	for in, want := range cases {
