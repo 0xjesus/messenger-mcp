@@ -44,11 +44,11 @@ if [ ! -x "$MM_VENV/bin/python" ] || ! "$MM_VENV/bin/python" -c "import synapse,
   "$MM_VENV/bin/pip" install --quiet "matrix-synapse==$SYNAPSE_VERSION"
 fi
 
-if ! "$MM_BIN/mautrix-meta" -v 2>/dev/null | grep -q .; then
+if ! "$MM_BIN/mautrix-meta" -v 2>/dev/null | grep -q "${MAUTRIX_META_VERSION:0:8}"; then
   say "Compilando mautrix-meta $MAUTRIX_META_VERSION"
   src="$HOME/src/mautrix-meta"
   [ -d "$src" ] || git clone https://github.com/mautrix/meta.git "$src"
-  git -C "$src" fetch --tags --quiet && git -C "$src" checkout --quiet "$MAUTRIX_META_VERSION"
+  git -C "$src" fetch --quiet --tags origin && git -C "$src" fetch --quiet origin main && git -C "$src" checkout --quiet "$MAUTRIX_META_VERSION"
   (cd "$src" && go build -tags goolm -ldflags "-s -w" -o "$MM_BIN/mautrix-meta" ./cmd/mautrix-meta)
 fi
 
