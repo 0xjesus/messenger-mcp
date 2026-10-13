@@ -53,6 +53,12 @@ func (p permanentError) Unwrap() error { return p.err }
 // Permanent marks an error as a definite rejection (nothing was sent).
 func Permanent(err error) error { return permanentError{err} }
 
+// IsPermanent reports whether err was marked with Permanent.
+func IsPermanent(err error) bool {
+	var p permanentError
+	return errors.As(err, &p)
+}
+
 type Config struct {
 	MinGap        time.Duration
 	StatusTimeout time.Duration
@@ -368,16 +374,14 @@ func (q *Queue) Step(ctx context.Context) (bool, error) {
 		} else {
 			eventID, sendErr = q.s.SendText(ctx, chat.RoomID, jobID, text)
 		}
-		var perm permanentError
-		if sendErr == nil || errors.As(sendErr, &perm) {
+		if sendErr == nil || IsPermanent(sendErr) {
 			break
 		}
 	}
-	var perm permanentError
 	switch {
 	case sendErr == nil:
 		_, err = q.db.ExecContext(ctx, `UPDATE outbox SET event_id=?, updated_at=? WHERE job_id=?`, eventID, now.UnixMilli(), jobID)
-	case errors.As(sendErr, &perm):
+	case IsPermanent(sendErr):
 		_, err = q.setStatus(ctx, jobID, StatusSending, StatusFailed, "", sendErr.Error())
 	default:
 		_, err = q.setStatus(ctx, jobID, StatusSending, StatusNeedsReview, "", "send outcome unknown: "+sendErr.Error())
